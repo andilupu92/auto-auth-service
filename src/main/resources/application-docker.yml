@@ -1,9 +1,13 @@
 spring:
-  # Database for Docker
-  #datasource:
-  #url: jdbc:postgresql://${DB_HOST:postgres}:5432/${DB_NAME:auto_auth_db}
-  #username: ${DB_USERNAME:postgres}
-  #password: ${DB_PASSWORD:postgres}
+  config:
+    activate:
+      on-profile: docker
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:5432/${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
 
   # Consul Discovery
   cloud:
