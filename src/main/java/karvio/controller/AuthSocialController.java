@@ -27,7 +27,7 @@ public class AuthSocialController {
     }
 
     @PostMapping("/apple")
-    public ResponseEntity<TokenResponse> loginWithApple(@RequestBody TokenRequest request) {
+    public ResponseEntity<TokenResponse> loginWithApple(@RequestBody TokenRequest request) throws Exception {
         return new ResponseEntity<>(authSocialService.loginWithApple(request), HttpStatus.ACCEPTED);
     }
 }

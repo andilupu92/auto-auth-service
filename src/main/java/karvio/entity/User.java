@@ -33,6 +33,9 @@ public class User {
     @Column(nullable = false, length = 50)
     private AuthProvider provider;
 
+    @Column(name = "apple_user_id")
+    private String appleUserId;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "user_roles",

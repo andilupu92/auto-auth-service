@@ -1,5 +1,12 @@
 package karvio.service;
 
+import com.auth0.jwk.Jwk;
+import com.auth0.jwk.JwkProvider;
+import com.auth0.jwk.UrlJwkProvider;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.JWTVerifier;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -24,10 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
+import java.security.PublicKey;
+import java.security.interfaces.RSAPublicKey;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +47,7 @@ public class AuthSocialService {
     private final CustomUserDetailsService customUserDetailsService;
     private final JwtUtil jwtUtil;
     private final RoleRepository roleRepository;
+    private final JwkProvider jwksProvider = new UrlJwkProvider("https://appleid.apple.com/auth");
 
     @Transactional
     public TokenResponse loginWithGoogle(TokenRequest request) throws GeneralSecurityException, IOException {
@@ -55,21 +62,9 @@ public class AuthSocialService {
             GoogleIdToken.Payload payload = idToken.getPayload();
             String email = payload.getEmail();
 
-            if (!userRepository.existsByEmail(email)) {
-                User newUser = new User();
-                newUser.setEmail(email);
-
-                Role role = roleRepository.findByName(RoleName.ROLE_USER)
-                        .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-
-                String randomPassword = UUID.randomUUID().toString();
-                newUser.setPassword(passwordEncoder.encode(randomPassword));
-                newUser.setProvider(AuthProvider.GOOGLE);
-                Set<Role> roles = new HashSet<>();
-                roles.add(role);
-                newUser.setRoles(roles);
-
-                userRepository.save(newUser);
+            Optional<User> userByEmail = userRepository.findByEmail(email);
+            if (userByEmail.isEmpty()) {
+                insertUser(email, AuthProvider.GOOGLE, null);
             }
 
             CustomUserDetails userDetails = (CustomUserDetails) customUserDetailsService.loadUserByUsername(email);
@@ -86,7 +81,74 @@ public class AuthSocialService {
         }
     }
 
-    public TokenResponse loginWithApple(TokenRequest request) {
-        return null;
+    @Transactional
+    public TokenResponse loginWithApple(TokenRequest request) throws Exception {
+
+        DecodedJWT decodedJWT = JWT.decode(request.token());
+        String kid = decodedJWT.getKeyId();
+
+        Jwk jwk = jwksProvider.get(kid);
+        PublicKey publicKey = jwk.getPublicKey();
+
+        Algorithm algorithm = Algorithm.RSA256((RSAPublicKey) publicKey, null);
+
+        JWTVerifier verifier = JWT.require(algorithm)
+                .withIssuer("https://appleid.apple.com")
+                .withAudience("com.anonymous.karvioapp")
+                .build();
+
+        String emailForToken;
+        DecodedJWT verifiedJWT = verifier.verify(request.token());
+        String appleUserId = verifiedJWT.getClaim("sub").asString();
+        Optional<User> userById = userRepository.findByAppleUserId(appleUserId);
+        String email = verifiedJWT.getClaim("email").asString();
+        Optional<User> userByEmail = userRepository.findByEmail(email);
+
+        if (userById.isEmpty()) {
+            if (userByEmail.isEmpty()) {
+                User newUser = insertUser(email, AuthProvider.APPLE, appleUserId);
+                emailForToken = newUser.getEmail();
+            } else {
+                User existingUser = userByEmail.get();
+                existingUser.setAppleUserId(appleUserId);
+                userRepository.save(existingUser);
+                emailForToken = existingUser.getEmail();
+            }
+        } else {
+            emailForToken = userById.get().getEmail();
+        }
+        return generateTokens(emailForToken);
+    }
+
+    private User insertUser(String email, AuthProvider provider, String appleUserId) {
+        User newUser = new User();
+        newUser.setEmail(email);
+        newUser.setAppleUserId(appleUserId);
+
+        Role role = roleRepository.findByName(RoleName.ROLE_USER)
+                .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
+
+        String randomPassword = UUID.randomUUID().toString();
+        newUser.setPassword(passwordEncoder.encode(randomPassword));
+        newUser.setProvider(provider);
+        Set<Role> roles = new HashSet<>();
+        roles.add(role);
+        newUser.setRoles(roles);
+
+        userRepository.save(newUser);
+
+        return newUser;
+    }
+
+    private TokenResponse generateTokens(String email) {
+        CustomUserDetails userDetails = (CustomUserDetails) customUserDetailsService.loadUserByUsername(email);
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(
+                userDetails, null, userDetails.getAuthorities());
+
+        String newAccessToken = jwtUtil.generateAccessToken(authentication);
+        String newRefreshToken = jwtUtil.generateRefreshToken(authentication);
+
+        return new TokenResponse(newAccessToken, newRefreshToken);
     }
 }
