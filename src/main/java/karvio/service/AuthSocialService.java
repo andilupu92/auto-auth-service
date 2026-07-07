@@ -30,6 +30,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URL;
 import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.security.interfaces.RSAPublicKey;
@@ -47,7 +49,6 @@ public class AuthSocialService {
     private final CustomUserDetailsService customUserDetailsService;
     private final JwtUtil jwtUtil;
     private final RoleRepository roleRepository;
-    private final JwkProvider jwksProvider = new UrlJwkProvider("https://appleid.apple.com/auth");
 
     @Transactional
     public TokenResponse loginWithGoogle(TokenRequest request) throws GeneralSecurityException, IOException {
@@ -87,6 +88,8 @@ public class AuthSocialService {
         DecodedJWT decodedJWT = JWT.decode(request.token());
         String kid = decodedJWT.getKeyId();
 
+        URL applePublicKeysUrl = new URI("https://appleid.apple.com/auth/keys").toURL();
+        JwkProvider jwksProvider = new UrlJwkProvider(applePublicKeysUrl);
         Jwk jwk = jwksProvider.get(kid);
         PublicKey publicKey = jwk.getPublicKey();
 
