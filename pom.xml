@@ -97,7 +97,7 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-consul-discovery</artifactId>
-            <version>4.3.0</version>
+            <version>5.0.2</version>
         </dependency>
 
         <dependency>
